@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GRAPHICSWALI SITE</title>
+<style>
+:root{--bg:#eef1f4;--card:#fbfcfd;--tx:#14233a;--mut:#6b7a8f;--ac:#12457a;--ln:#c9d2dd;--v1:#12457a;--v2:#c0392b;--v3:#2e7d5b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1722;--card:#17212f;--tx:#e4ebf4;--mut:#8fa0b6;--ac:#7db4ff;--ln:#2c3a4e;--v1:#7db4ff;--v2:#ff8a7a;--v3:#6fd1a0}}
+:root[data-theme="dark"]{--bg:#0f1722;--card:#17212f;--tx:#e4ebf4;--mut:#8fa0b6;--ac:#7db4ff;--ln:#2c3a4e;--v1:#7db4ff;--v2:#ff8a7a;--v3:#6fd1a0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 "Segoe UI",system-ui,sans-serif;background-image:linear-gradient(var(--ln) 1px,transparent 1px),linear-gradient(90deg,var(--ln) 1px,transparent 1px);background-size:24px 24px;background-attachment:fixed}
+header{padding:20px 16px 8px;max-width:1100px;margin:auto}
+h1{margin:0;font:600 26px/1.2 Georgia,serif;letter-spacing:.2px}
+header p{margin:4px 0 0;color:var(--mut);max-width:62ch}
+nav{display:flex;gap:6px;flex-wrap:wrap;max-width:1100px;margin:10px auto 0;padding:0 16px}
+nav button{border:1px solid var(--ln);background:var(--card);color:var(--tx);padding:8px 14px;border-radius:4px;cursor:pointer;font:inherit}
+nav button[aria-pressed=true]{background:var(--ac);color:var(--bg);border-color:var(--ac)}
+main{display:grid;grid-template-columns:300px 1fr;gap:14px;max-width:1100px;margin:12px auto;padding:0 16px 30px}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:4px;padding:14px;margin-bottom:14px}
+.card h2{margin:0 0 8px;font:600 15px Georgia,serif}
+label{display:block;font-size:13px;color:var(--mut);margin-top:10px}
+input,select{width:100%;padding:7px 8px;border:1px solid var(--ln);border-radius:3px;background:var(--bg);color:var(--tx);font:inherit}
+svg{width:100%;max-height:430px;display:block}
+svg line,svg polyline,svg polygon,svg path,svg circle{vector-effect:non-scaling-stroke;stroke-width:1.6;fill:none}
+svg text{fill:var(--mut);font-family:Georgia,serif}
+#c3{width:100%;height:340px;display:block;touch-action:none;cursor:grab}
+.res{font-size:14px}.res li{margin:3px 0}.err{color:var(--v2);font-weight:600}
+.note{font-size:12.5px;color:var(--mut)}
+</style></head><body>
+<header><h1>Engineering Graphics Solver</h1>
+<p>Choose a problem type, enter its dimensions, and get the first-angle projections, the working values and a 3D view you can rotate.</p></header>
+<nav id="tabs"></nav>
+<main>
+<div><div class="card"><h2 id="mt"></h2><div id="form"></div></div>
+<p class="note">First-angle projection, all dimensions in mm. Hidden edges are drawn as full lines. Not covered yet: development, intersection of surfaces, scales and isometric views.</p></div>
+<div>
+<div class="card"><h2>2D views</h2><div id="o2"></div></div>
+<div class="card" id="tsb"><h2>True shape of the section</h2><div id="ts"></div></div>
+<div class="card" id="b3"><h2>3D view (drag to rotate)</h2><canvas id="c3"></canvas></div>
+<div class="card"><h2>Working and results</h2><div class="res" id="st"></div></div>
+</div></main>
+<script>
+const D=Math.PI/180,$=s=>document.querySelector(s),f1=x=>(+x).toFixed(1);
+const rotY=(p,a)=>[p[0]*Math.cos(a)+p[2]*Math.sin(a),p[1],-p[0]*Math.sin(a)+p[2]*Math.cos(a)];
+const rotZ=(p,a)=>[p[0]*Math.cos(a)-p[1]*Math.sin(a),p[0]*Math.sin(a)+p[1]*Math.cos(a),p[2]];
+const SOL=['Prism','Pyramid','Cylinder','Cone'];
+const M={
+line:{t:'Projection of a line',f:[['L','True length (mm)',80],['th','Inclination to HP, θ (°)',30],['ph','Inclination to VP, φ (°)',45],['h','End A above HP (mm)',20],['d','End A in front of VP (mm)',15]],run:line},
+solid:{t:'Projection of a solid',f:[['ty','Solid',SOL],['n','Base sides (prism, pyramid)',6],['s','Base side or diameter (mm)',30],['H','Axis length (mm)',60],['th','Axis inclined to HP (°)',45],['ps','Plan of axis inclined to XY (°)',30],['d','Nearest point from VP (mm)',15]],run:solid},
+section:{t:'Section of a solid by an AIP',f:[['ty','Solid (standing on HP)',SOL],['n','Base sides (prism, pyramid)',4],['s','Base side or diameter (mm)',50],['H','Axis length (mm)',70],['th','Cutting plane inclined to HP (°)',45],['k','Plane meets axis at height (mm)',30]],run:section},
+curve:{t:'Engineering curves',f:[['ty','Curve',['Ellipse','Parabola','Hyperbola','Cycloid','Involute']],['e','Eccentricity e (conics)',0.67],['d','Focus to directrix (conics, mm)',50],['r','Circle radius (cycloid, involute, mm)',20]],run:curve}
+};
+let cur='line';
+function build(ty,n,s,H){const rd=ty=='Cylinder'||ty=='Cone',ap=ty=='Pyramid'||ty=='Cone';if(rd)n=48;
+const R=rd?s/2:s/(2*Math.sin(Math.PI/n)),off=rd?0:Math.PI/n,B=[],T=[],E=[],st=rd?2:1;
+for(let i=0;i<n;i++){const a=off+2*Math.PI*i/n,c=R*Math.cos(a),s2=R*Math.sin(a);B.push([c,s2,0]);T.push([c,s2,H])}
+for(let i=0;i<n;i++){const j=(i+1)%n;E.push([B[i],B[j]]);if(!ap)E.push([T[i],T[j]]);if(i%st==0)E.push(ap?[B[i],[0,0,H]]:[B[i],T[i]])}
+return{E,R}}
+const L=(a,b,c,d,col,ds)=>`<line x1="${a}" y1="${b}" x2="${c}" y2="${d}" stroke="var(${col||'--v1'})" ${ds?'stroke-dasharray="6 4"':''}/>`;
+function views(G,pj,lab){const P=G.flatMap(g=>g.e.flat()),xs=P.map(p=>p[0]),x0=Math.min(...xs,0)-14,x1=Math.max(...xs)+14,zt=Math.max(...P.map(p=>p[2]),0)+18,yb=Math.max(...P.map(p=>p[1]))+18,W=x1-x0,fs=W/26;
+let s=`<svg viewBox="${x0} ${-zt} ${W} ${zt+yb}">`+L(x0,0,x1,0,'--mut');
+(pj||[]).forEach(p=>s+=L(p[0],-p[2],p[0],p[1],'--mut',1));
+G.forEach(g=>g.e.forEach(([p,q])=>s+=L(p[0],-p[2],q[0],-q[2],g.c,g.d)+L(p[0],p[1],q[0],q[1],g.c,g.d)));
+(lab||[]).forEach(([n,p])=>s+=`<text x="${p[0]+1}" y="${-p[2]-1}" font-size="${fs}">${n}′</text><text x="${p[0]+1}" y="${p[1]+fs}" font-size="${fs}">${n}</text>`);
+return s+`<text x="${x0+1}" y="${-zt+fs+1}" font-size="${fs}">FV</text><text x="${x0+1}" y="${yb-2}" font-size="${fs}">TV</text><text x="${x0+1}" y="-2" font-size="${fs}">X</text><text x="${x1-fs}" y="-2" font-size="${fs}">Y</text></svg>`}
+function line(v){const{L,th,ph,h,d}=v,a=th*D,b=ph*D;
+if(L<=0||th<0||ph<0||th>90||ph>90)return{err:'Enter a positive length and angles between 0° and 90°.'};
+if(Math.sin(a)**2+Math.sin(b)**2>1+1e-9)return{err:'Not possible: sin²θ + sin²φ must not exceed 1. Reduce θ or φ.'};
+const dz=L*Math.sin(a),dy=L*Math.sin(b),dx=Math.sqrt(Math.max(0,L*L-dz*dz-dy*dy)),A=[0,d,h],B=[dx,d+dy,h+dz];
+const G=[{e:[[A,B]],c:'--v1'}],pj=[A,B];
+const s=`<li>Plan length (TV) = L cos θ = <b>${f1(L*Math.cos(a))}</b> mm; elevation length (FV) = L cos φ = <b>${f1(L*Math.cos(b))}</b> mm.</li>
+<li>Apparent inclination in FV, α = <b>${f1(Math.atan2(dz,dx)/D)}°</b>; in TV, β = <b>${f1(Math.atan2(dy,dx)/D)}°</b>.</li>
+<li>Difference of heights = <b>${f1(dz)}</b> mm; difference of distances from VP = <b>${f1(dy)}</b> mm; horizontal run (x) = <b>${f1(dx)}</b> mm.</li>
+<li>Point A: ${f1(h)} above HP, ${f1(d)} in front of VP. Point B: ${f1(h+dz)} above HP, ${f1(d+dy)} in front of VP.</li>`+
+(dz>0?`<li>HP trace (H.T.) lies at x = ${f1(-h/dz*dx)} from A’s projector.</li>`:'')+(dy>0?`<li>VP trace (V.T.) lies at x = ${f1(-d/dy*dx)} from A’s projector.</li>`:'');
+return{svg:views(G,pj,[['a',A],['b',B]]),g:[...G,{e:[[A,[A[0],A[1],0]],[B,[B[0],B[1],0]],[A,[A[0],0,A[2]]],[B,[B[0],0,B[2]]]],c:'--mut',d:1}],steps:'<ol>'+s+'</ol>'}}
+function solid(v){const{ty,n,s,H,th,ps,d}=v,rd=ty=='Cylinder'||ty=='Cone';
+if(s<=0||H<=0||th<0||th>90)return{err:'Enter positive sizes and an axis angle between 0° and 90°.'};
+if(!rd&&(n<3||n>12||n%1))return{err:'Base sides must be a whole number from 3 to 12.'};
+const a=(90-th)*D,p2=ps*D,Tr=p=>rotZ(rotY(p,a),p2),bd=build(ty,n,s,H);let E=bd.E.map(e=>e.map(Tr));
+const ax=[Tr([0,0,0]),Tr([0,0,H])],all=E.flat().concat(ax),mx=Math.min(...all.map(p=>p[0])),mz=Math.min(...all.map(p=>p[2])),my=Math.min(...all.map(p=>p[1])),sh=p=>[p[0]-mx,p[1]-my+d,p[2]-mz];
+E=E.map(e=>e.map(sh));const AX=ax.map(sh),phi=Math.asin(Math.min(1,Math.abs(Math.sin(a)*Math.sin(p2))))/D;
+const G=[{e:E,c:'--v1'},{e:[AX],c:'--v2',d:1}];
+const st=`<li>Stage 1: draw the ${ty.toLowerCase()} with its base on HP (FV base on XY). Tilt the FV so the axis makes <b>${th}°</b> with XY, with a ${rd?'point':'edge'} of the base on XY; project the TV.</li>
+<li>Stage 2: rotate the TV until the plan of the axis makes <b>${ps}°</b> with XY. The FV heights stay unchanged; shift the FV points horizontally.</li>
+<li>True inclination of axis with VP, φ = <b>${f1(phi)}°</b> (sin φ = sin(90°−θ) · sin ψ).</li>
+<li>Axis length in FV = <b>${f1(Math.hypot(AX[1][0]-AX[0][0],AX[1][2]-AX[0][2]))}</b> mm; in TV = <b>${f1(Math.hypot(AX[1][0]-AX[0][0],AX[1][1]-AX[0][1]))}</b> mm (dashed red line is the axis).</li>
+<li>Overall height above HP = <b>${f1(Math.max(...E.flat().map(p=>p[2])))}</b> mm.</li>`;
+return{svg:views(G),g:G,steps:'<ol>'+st+'</ol>'}}
+function section(v){const{ty,n,s,H,th,k}=v,rd=ty=='Cylinder'||ty=='Cone';
+if(s<=0||H<=0||th<=0||th>=90)return{err:'Enter positive sizes and a plane angle between 0° and 90° (exclusive).'};
+if(!rd&&(n<3||n>12||n%1))return{err:'Base sides must be a whole number from 3 to 12.'};
+const bd=build(ty,n,s,H),yo=bd.R+14,E=bd.E.map(e=>e.map(p=>[p[0]+bd.R,p[1]+yo,p[2]])),tn=Math.tan(th*D),cx=bd.R,
+f=p=>p[2]-k+tn*(p[0]-cx),keep=[],pts=[];
+E.forEach(([p,q])=>{const fa=f(p),fb=f(q);if(fa<=0&&fb<=0)keep.push([p,q]);else if(fa*fb<0){const t=fa/(fa-fb),c=p.map((u,i)=>u+t*(q[i]-u));pts.push(c);keep.push(fa<0?[p,c]:[c,q])}});
+if(pts.length<3)return{err:'The cutting plane does not cut the solid. Change the angle or height.'};
+const m=[pts.reduce((a,p)=>a+p[0],0)/pts.length,pts.reduce((a,p)=>a+p[1],0)/pts.length];
+pts.sort((a,b)=>Math.atan2(a[1]-m[1],a[0]-m[0])-Math.atan2(b[1]-m[1],b[0]-m[0]));
+const sec=pts.map((p,i)=>[p,pts[(i+1)%pts.length]]),ap=[[cx-bd.R-8,k+tn*bd.R+8*tn,0],[cx+bd.R+8,k-tn*bd.R-8*tn,0]];
+const ln=[[[cx-bd.R-10,yo,k+tn*(bd.R+10)],[cx+bd.R+10,yo,k-tn*(bd.R+10)]]];
+const G=[{e:keep,c:'--v1'},{e:sec,c:'--v2'},{e:ln.map(e=>e.map(p=>[p[0],0,p[2]])),c:'--v3',d:1}];
+const u=pts.map(p=>[(p[0]-cx)/Math.cos(th*D),p[1]-yo]),ux=u.map(p=>p[0]),uy=u.map(p=>p[1]),x0=Math.min(...ux)-8,W=Math.max(...ux)-x0+16,y0=Math.min(...uy)-8,Hh=Math.max(...uy)-y0+16;
+const ts=`<svg viewBox="${x0} ${y0} ${W} ${Hh}"><polygon points="${u.map(p=>p.join(',')).join(' ')}" stroke="var(--v2)" fill="var(--v2)" fill-opacity=".18"/></svg>`;
+const curve=ty=='Cone'?(th<(Math.atan(bd.R/H)/D*0+Math.atan(H/bd.R)/D)?'ellipse':'parabola or hyperbola'):ty=='Cylinder'?'ellipse':'polygon';
+const st=`<li>Draw the FV and TV of the standing ${ty.toLowerCase()}; draw the cutting plane (AIP) as a line at <b>${th}°</b> to XY in the FV, meeting the axis at <b>${k}</b> mm above the base.</li>
+<li>Mark where the plane meets each edge or generator in the FV, then project those points to the TV; join them in order (red curve or polygon).</li>
+<li>Section outline in the TV: ${curve}. Cut‑away part is the portion above the plane.</li>
+<li>True shape: project the points perpendicular to the plane (new reference line parallel to the AIP). It spans <b>${f1(Math.max(...ux)-Math.min(...ux))}</b> mm along the plane and <b>${f1(Math.max(...uy)-Math.min(...uy))}</b> mm across.</li>`;
+return{svg:views(G.slice(0,2).concat([{e:ln.map(e=>e.map(p=>[p[0],yo-yo,p[2]])),c:'--v3',d:1}])),ts,g:G.slice(0,2).concat([{e:ln,c:'--v3',d:1}]),steps:'<ol>'+st+'</ol>'}}
+function pl(P,col,ds){return`<polyline points="${P.map(p=>p[0].toFixed(2)+','+(-p[1]).toFixed(2)).join(' ')}" stroke="var(${col||'--v1'})" ${ds?'stroke-dasharray="6 4"':''}/>`}
+function circ(x,y,r){return`<circle cx="${x}" cy="${-y}" r="${r}" stroke="var(--mut)"/>`}
+function curve(v){const{ty,d,r}=v;let e=ty=='Parabola'?1:v.e,segs=[],ex='',inf='';
+if(['Ellipse','Parabola','Hyperbola'].includes(ty)){
+if(d<=0||e<=0)return{err:'Enter a positive eccentricity and distance.'};
+if(ty=='Ellipse'&&e>=1)return{err:'For an ellipse, e must be less than 1.'};
+if(ty=='Hyperbola'&&e<=1)return{err:'For a hyperbola, e must be greater than 1.'};
+let sg=[];for(let t=0;t<=2*Math.PI+.001;t+=.01){const den=1-e*Math.cos(t),rr=e*d/den;if(Math.abs(den)<.02||Math.abs(rr)>220){if(sg.length>1)segs.push(sg);sg=[]}else sg.push([rr*Math.cos(t),rr*Math.sin(t)])}
+if(sg.length>1)segs.push(sg);
+ex=L(-d,-150,-d,150,'--v3',1).replace(/y1="-150"/,'y1="-150"')+`<circle cx="0" cy="0" r="1.5" fill="var(--v2)"/>`;
+inf=`<li>Focus F to directrix = <b>${d}</b> mm; ratio of distance from F to distance from directrix = e = <b>${e}</b>.</li>`;
+if(ty=='Ellipse'){const a=e*d/(1-e*e);inf+=`<li>Semi-major axis a = ed/(1−e²) = <b>${f1(a)}</b>; semi-minor b = a√(1−e²) = <b>${f1(a*Math.sqrt(1-e*e))}</b>; distance of F from centre = ae = <b>${f1(a*e)}</b> mm.</li>`}
+else if(ty=='Parabola')inf+=`<li>Vertex lies midway between F and the directrix, <b>${f1(d/2)}</b> mm from each.</li>`;
+else{const a=e*d/(e*e-1);inf+=`<li>Semi-transverse axis a = ed/(e²−1) = <b>${f1(a)}</b> mm; asymptote half-angle = ${f1(Math.acos(1/e)/D)}° from the axis.</li>`}
+inf+=`<li>Method: draw the directrix and axis, mark F, divide the distance from the directrix to the vertex in ratio e, then find points using the construction lines.</li>`}
+else if(ty=='Cycloid'){if(r<=0)return{err:'Enter a positive radius.'};let sg=[];for(let t=0;t<=2*Math.PI+.001;t+=.04)sg.push([r*(t-Math.sin(t)),r*(1-Math.cos(t))]);segs=[sg];
+ex=L(-r,0,2*Math.PI*r+r,0,'--mut')+circ(0,r,r)+circ(2*Math.PI*r,r,r);inf=`<li>The circle of radius <b>${r}</b> mm rolls without slipping on a straight line; the cusp-to-cusp length = 2πr = <b>${f1(2*Math.PI*r)}</b> mm and the height = 2r = <b>${2*r}</b> mm.</li><li>Method: divide the circle and the rolled line (length 2πr) into equal parts, draw horizontal lines through the circle’s points and mark the point at each new centre.</li>`}
+else{if(r<=0)return{err:'Enter a positive radius.'};let sg=[];for(let t=0;t<=2.5*Math.PI;t+=.04)sg.push([r*(Math.cos(t)+t*Math.sin(t)),r*(Math.sin(t)-t*Math.cos(t))]);segs=[sg];
+ex=circ(0,0,r);inf=`<li>Involute of a circle of radius <b>${r}</b> mm: the path of the end of a string unwound from the circle; the length unwound after one turn = 2πr = <b>${f1(2*Math.PI*r)}</b> mm.</li><li>Method: divide the circle into equal parts, draw tangents at each point and cut off lengths equal to the arc from the start point.</li>`}
+const P=segs.flat(),xs=P.map(p=>p[0]),ys=P.map(p=>p[1]);let x0=Math.min(...xs,0)-12,x1=Math.max(...xs)+12,y0=Math.min(...ys,0)-12,y1=Math.max(...ys)+12;
+if(ty=='Cycloid'){x0=Math.min(x0,-r-5);x1=Math.max(x1,2*Math.PI*r+r+5)}if(ty=='Involute'){x0=Math.min(x0,-r-5);y0=Math.min(y0,-r-5);y1=Math.max(y1,r+5)}
+const ax=['Ellipse','Parabola','Hyperbola'].includes(ty)?L(x0,0,x1,0,'--mut'):'';
+const svg=`<svg viewBox="${x0} ${-y1} ${x1-x0} ${y1-y0}">${ax}${ex}${segs.map(s=>pl(s)).join('')}</svg>`;
+return{svg,steps:'<ol>'+inf+'</ol>'}}
+/* 3D */
+const S3={g:[],ry:-.7,rx:.55};
+function draw3(){const c=$('#c3'),x=c.getContext('2d'),r=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(!w)return;c.width=w*r;c.height=h*r;x.setTransform(r,0,0,r,0,0);
+const cs=getComputedStyle(document.documentElement),col=n=>cs.getPropertyValue(n).trim(),P=S3.g.flatMap(g=>g.e.flat());
+const x0=Math.min(...P.map(p=>p[0]),0)-10,x1=Math.max(...P.map(p=>p[0]))+10,y1=Math.max(...P.map(p=>p[1]))+10,z1=Math.max(...P.map(p=>p[2]))+10;
+const pr=p=>{const a=S3.ry,u=p[0]*Math.cos(a)-p[1]*Math.sin(a),y=p[0]*Math.sin(a)+p[1]*Math.cos(a);return[u,-(p[2]*Math.cos(S3.rx)-y*Math.sin(S3.rx))]};
+const HP=[[x0,0,0],[x1,0,0],[x1,y1,0],[x0,y1,0]],VP=[[x0,0,0],[x1,0,0],[x1,0,z1],[x0,0,z1]];
+const A=P.concat(HP,VP).map(pr),mnx=Math.min(...A.map(a=>a[0])),mxx=Math.max(...A.map(a=>a[0])),mny=Math.min(...A.map(a=>a[1])),mxy=Math.max(...A.map(a=>a[1])),
+sc=Math.min((w-24)/(mxx-mnx),(h-24)/(mxy-mny)),T=p=>{const q=pr(p);return[(q[0]-mnx)*sc+(w-(mxx-mnx)*sc)/2,(q[1]-mny)*sc+(h-(mxy-mny)*sc)/2]};
+const quad=(Q,t)=>{x.beginPath();Q.forEach((p,i)=>{const q=T(p);i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1])});x.closePath();x.globalAlpha=.1;x.fillStyle=col('--mut');x.fill();x.globalAlpha=.6;x.strokeStyle=col('--mut');x.lineWidth=1;x.stroke();x.globalAlpha=1;const q=T(Q[3]);x.fillStyle=col('--mut');x.font='12px Georgia';x.fillText(t,q[0]+4,q[1]+(t=='HP'?-4:12))};
+quad(HP,'HP');quad(VP,'VP');
+S3.g.forEach(g=>{x.beginPath();x.strokeStyle=col(g.c);x.lineWidth=1.6;x.setLineDash(g.d?[6,4]:[]);g.e.forEach(([p,q])=>{const a=T(p),b=T(q);x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1])});x.stroke()});x.setLineDash([])}
+let dr=null;const cv=$('#c3');
+cv.onpointerdown=e=>{dr=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId)};
+cv.onpointerup=()=>dr=null;
+cv.onpointermove=e=>{if(!dr)return;S3.ry+=(e.clientX-dr[0])*.01;S3.rx=Math.max(-.2,Math.min(1.5,S3.rx+(e.clientY-dr[1])*.01));dr=[e.clientX,e.clientY];draw3()};
+addEventListener('resize',draw3);
+/* UI */
+function mkTabs(){$('#tabs').innerHTML=Object.keys(M).map(k=>`<button aria-pressed="${k==cur}" data-k="${k}">${M[k].t}</button>`).join('');
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{cur=b.dataset.k;mkTabs();mkForm();run()})}
+function mkForm(){$('#mt').textContent=M[cur].t;$('#form').innerHTML=M[cur].f.map(([k,l,d])=>`<label for="f_${k}">${l}</label>`+(Array.isArray(d)?`<select id="f_${k}">${d.map(o=>`<option>${o}</option>`).join('')}</select>`:`<input id="f_${k}" type="number" step="any" value="${d}">`)).join('');
+document.querySelectorAll('#form input,#form select').forEach(e=>e.oninput=run)}
+function run(){const m=M[cur],v={};m.f.forEach(([k,,d])=>{const e=$('#f_'+k);v[k]=Array.isArray(d)?e.value:+e.value});
+let r;try{r=m.run(v)}catch(x){r={err:'Could not solve with these values.'}}
+if(r.err){$('#o2').innerHTML='';$('#tsb').style.display='none';$('#b3').style.display='none';$('#st').innerHTML=`<p class="err">${r.err}</p>`;return}
+$('#o2').innerHTML=r.svg;$('#tsb').style.display=r.ts?'':'none';$('#ts').innerHTML=r.ts||'';$('#b3').style.display=r.g?'':'none';$('#st').innerHTML=r.steps;
+if(r.g){S3.g=r.g;draw3()}}
+mkTabs();mkForm();run();
+</script></body></html>
